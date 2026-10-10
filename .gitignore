@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+venv/
+.venv/
+env/
+
+# Django
+db.sqlite3
+*.sqlite3
+staticfiles/
+media/
+
+# Node
+node_modules/
+dist/
+build/
+.vite/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# ML artifacts (large binaries)
+# Keep them out of git — models should be regenerated via `python -m ml.train`
+backend/ml/data/raw/*.csv
+backend/ml/artifacts/*.pt
+backend/ml/artifacts/*.pkl
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Jupyter
+.ipynb_checkpoints/
