@@ -98,6 +98,11 @@ class Command(BaseCommand):
             action="store_true",
             help="Delete existing demo users first (does NOT touch other users).",
         )
+        parser.add_argument(
+            "--assess",
+            action="store_true",
+            help="Also run DL + RF assessment on each seeded activity.",
+        )
 
     @transaction.atomic
     def handle(self, *args, **options):

@@ -8,6 +8,10 @@ from risk_engine.models import RiskAssessment
 from risk_engine.serializers import RiskAssessmentSerializer
 from risk_engine.services.risk_calculator import calculate_risk
 from ml.inference import predict_weather_at
+from ml.risk_inference import (
+    predict_risk_level,
+    is_available as rf_available,
+)
 from weather_data.services.open_meteo import (
     WeatherServiceError,
     fetch_weather_for_activity,
@@ -291,6 +295,31 @@ class PlannedActivityViewSet(viewsets.ModelViewSet):
                 "DEEP_LEARNING" if prediction else "RULE_BASED"
             )
 
+            # ---- Random Forest classification override ----
+            # Rules produce the score/explanation/recommendation.
+            # The RF learns the final risk level from data.
+            rf_meta = None
+            try:
+                if rf_available():
+                    rf_result = predict_risk_level(
+                        temperature=float(weather_record.temperature),
+                        humidity=float(weather_record.humidity),
+                        wind_speed=float(weather_record.wind_speed),
+                        uv_index=float(weather_record.uv_index),
+                        intensity=activity.activity_type.intensity,
+                        duration=float(activity.duration_hours),
+                    )
+                    assessment_data["risk_level"] = rf_result["level"]
+                    assessment_data["assessment_method"] = "DEEP_LEARNING_RF"
+                    rf_meta = {
+                        "confidence": rf_result["confidence"],
+                        "probabilities": rf_result["probabilities"],
+                    }
+            except Exception as rf_exc:
+                import traceback, sys
+                print(f"[RF] FAILED: {type(rf_exc).__name__}: {rf_exc}", file=sys.stderr)
+                traceback.print_exc()
+
         except WeatherServiceError as error:
             return Response(
                 {
@@ -332,30 +361,40 @@ class PlannedActivityViewSet(viewsets.ModelViewSet):
             .get(pk=activity.pk)
         )
 
-        return Response(
-            {
-                "activity": PlannedActivitySerializer(
-                    refreshed_activity,
-                    context={"request": request},
-                ).data,
-                "weather": {
-                    "id": weather_record.id,
-                    "location": weather_record.location,
-                    "recorded_at": weather_record.recorded_at,
-                    "temperature": weather_record.temperature,
-                    "feels_like": weather_record.feels_like,
-                    "humidity": weather_record.humidity,
-                    "uv_index": weather_record.uv_index,
-                    "wind_speed": weather_record.wind_speed,
-                    "condition": weather_record.condition,
-                    "source": weather_record.source,
-                    "status": weather_record.status,
-                },
-                "assessment": RiskAssessmentSerializer(
-                    assessment,
-                    context={"request": request},
-                ).data,
+        response_payload = {
+            "activity": PlannedActivitySerializer(
+                refreshed_activity,
+                context={"request": request},
+            ).data,
+            "weather": {
+                "id": weather_record.id,
+                "location": weather_record.location,
+                "recorded_at": weather_record.recorded_at,
+                "temperature": weather_record.temperature,
+                "feels_like": weather_record.feels_like,
+                "humidity": weather_record.humidity,
+                "uv_index": weather_record.uv_index,
+                "wind_speed": weather_record.wind_speed,
+                "condition": weather_record.condition,
+                "source": weather_record.source,
+                "status": weather_record.status,
             },
+            "assessment": RiskAssessmentSerializer(
+                assessment,
+                context={"request": request},
+            ).data,
+        }
+
+        # Attach Random Forest metadata if available
+        try:
+            if rf_meta:
+                response_payload["assessment"]["rf_confidence"] = rf_meta["confidence"]
+                response_payload["assessment"]["rf_probabilities"] = rf_meta["probabilities"]
+        except NameError:
+            pass
+
+        return Response(
+            response_payload,
             status=status.HTTP_201_CREATED,
         )
 
